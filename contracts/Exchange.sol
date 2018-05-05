@@ -69,7 +69,7 @@ contract Exchange is Owned {
 
     function withdrawEther(uint amountInWei) public {
         require(
-            amountInWei >= etherBalanceForAddress[msg.sender],
+            amountInWei <= etherBalanceForAddress[msg.sender],
             "amountInWei less than sender ether balance "
         );
         require(
