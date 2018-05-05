@@ -1,4 +1,5 @@
 var fixedSupplyToken = artifacts.require("./FixedSupplyToken.sol");
+var exchangeArtifact = artifacts.require("./exchange.sol");
 
 contract('MyToken', function (accounts) {
     it('the total supply is what it is supposed to be', async function () {
@@ -32,4 +33,43 @@ contract('MyToken', function (accounts) {
         assert.equal(account0_after,750000,"The owner has 750 000 tokens after the transfer");
         assert.equal(account1_after,250000,"Accounts[1] has 250 000 tokens after the transfer");
     });
+
+    it('adding a new token should be reflected in the hasToken function', async function() {
+        let token = await fixedSupplyToken.deployed();
+        let exchange = await exchangeArtifact.deployed();
+        assert.isFalse(await exchange.hasToken("FAB"),"FAB token is not registered in the exchange");
+        assert.isFalse(await exchange.hasToken("TOM"),"TOM token is not registered in the exchange");
+        assert.isFalse(await exchange.hasToken("VIN"),"VIN token is not registered in the exchange");
+
+        await exchange.addToken("FAB",token.address);
+        assert.isTrue(await exchange.hasToken("FAB"),"FAB is added to the exchange");
+        assert.isFalse(await exchange.hasToken("TOM"),"TOM token is not registered in the exchange");
+        assert.isFalse(await exchange.hasToken("VIN"),"VIN token is not registered in the exchange");
+
+        await exchange.addToken("TOM",token.address);
+        assert.isTrue(await exchange.hasToken("FAB"),"FAB is added to the exchange");
+        assert.isTrue(await exchange.hasToken("TOM"),"TOM is added to the exchange");
+        assert.isFalse(await exchange.hasToken("VIN"),"VIN token is not registered in the exchange");
+    });
+
+    ////////////////////////////////
+    /// ETHER DEPOSIT & WITHDRAW ///
+    ////////////////////////////////
+
+    it('deposit and deposit ether should be reflected in the balance', async function () {
+        let exchange = await exchangeArtifact.deployed();
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),0);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),0);
+
+        await exchange.depositEther({from:accounts[0], value:100});
+
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),100);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),0);
+
+        await exchange.withdrawEther(20, {from:accounts[0]});
+
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),80);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),0);
+    });
+
 });
