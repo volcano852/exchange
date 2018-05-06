@@ -51,25 +51,4 @@ contract('MyToken', function (accounts) {
         assert.isTrue(await exchange.hasToken("TOM"),"TOM is added to the exchange");
         assert.isFalse(await exchange.hasToken("VIN"),"VIN token is not registered in the exchange");
     });
-
-    ////////////////////////////////
-    /// ETHER DEPOSIT & WITHDRAW ///
-    ////////////////////////////////
-
-    it('deposit and deposit ether should be reflected in the balance', async function () {
-        let exchange = await exchangeArtifact.deployed();
-        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),0);
-        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),0);
-
-        await exchange.depositEther({from:accounts[0], value:100});
-
-        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),100);
-        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),0);
-
-        await exchange.withdrawEther(20, {from:accounts[0]});
-
-        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),80);
-        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),0);
-    });
-
 });
