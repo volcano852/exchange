@@ -59,13 +59,35 @@ contract Exchange is Owned {
 
     event TokenAdded(address indexed _initiator, uint _timestamp, uint8 indexed _tokenIndex, string _symbolName);
 
-    event TokenDeposited(address indexed_initiator, uint _timestamp, uint8 indexed _tokenIndex, string _symbolName, uint _amount);
+    event TokenDeposited(address indexed _initiator, uint _timestamp, uint8 indexed _tokenIndex, string _symbolName, uint _amount);
 
-    event TokenWithdrawn(address indexed_initiator, uint _timestamp, uint8 indexed _tokenIndex, string _symbolName, uint _amount);
+    event TokenWithdrawn(address indexed _initiator, uint _timestamp, uint8 indexed _tokenIndex, string _symbolName, uint _amount);
 
     event EtherDeposited(address indexed _initiator, uint _timestamp, uint _amountInWei);
 
     event EtherWithdrawn(address indexed _initiator, uint _timestamp, uint _amountInWei);
+
+    ////////////////////
+    /// ORDER EVENTS ///
+    ////////////////////
+
+    event BuyLimitOrderCreated(address indexed _initiator, uint _timestamp,
+        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei,uint _orderId);
+
+    event SellLimitOrderCreated(address indexed _initiator, uint _timestamp,
+        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
+
+    event BuyLimitOrderCanceled(address indexed _initiator, uint _timestamp,
+        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
+
+    event SellLimitOrderCanceled(address indexed _initiator, uint _timestamp,
+        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
+
+    event BuyLimitOrderFulfilled(address indexed _initiator, uint _timestamp,
+        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
+
+    event SellLimitOrderFulfilled(address indexed _initiator, uint _timestamp,
+        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
 
     ////////////////////////////////
     /// ETHER DEPOSIT & WITHDRAW ///
