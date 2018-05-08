@@ -16,9 +16,10 @@ contract Exchange is Owned {
 
         mapping(uint => Offer) offers;
 
-        //to represent a stack
-        uint offers_key;
-        uint offer_length;
+        //to represent a queue
+        //offers_start == 1 ? an offer exists in the queue
+        uint offers_start;
+        uint offers_end;
     }
 
     struct Token {
@@ -28,24 +29,22 @@ contract Exchange is Owned {
 
         // price is the key for order book linkedlist
         mapping(uint => OrderBook) buyOrderBook;
-        //HEAD of the linkedlist for the buy order book
-        uint currentBuyPrice;
-        //TAIL of the linkedlist for the buy order book
+        //HEAD of the linked list for the buy order book
+        uint highestBuyPrice;
+        //TAIL of the linked list for the buy order book
         uint lowestBuyPrice;
-        uint amountBuyPrices;
+        uint amountBuyPrice;
 
         // price is the key for order book linkedlist
         mapping(uint => OrderBook) sellOrderBook;
         //HEAD of the linked list for the sell order book
-        uint currentSellPrice;
+        uint lowestSellPrice;
         //TAIL of the linked list for the sell order book
         uint highestSellPrice;
         uint amountSellPrices;
-
-
     }
 
-    //uint8, we support maximum 255 contracts as we start from 1
+    // support a maximum of 255 contracts as we start from 1
     mapping(uint8 => Token) tokens;
     uint8 tokenIndex;
 
@@ -214,21 +213,104 @@ contract Exchange is Owned {
     /// ORDER BOOK MANAGEMENT ///
     /////////////////////////////
 
-    //    function getBuyOrderBook(string symbolName) constant returns (?) {
-    //
-    //    }
-    //
-    //    function getSellOrderBook(string symbolName) constant returns (?) {
-    //
-    //    }
-    //
-    //    function buyToken(string symbolName, uint amount, uint priceInWei) {
-    //
-    //    }
+    ///////// BUY ORDER /////////
+
+    function getBuyOrderBookPricesAndAmount(string symbolName) public view returns (uint, uint, uint) {
+        require(hasToken(symbolName), "token is not referenced in the exchange");
+
+        uint8 idx = getSymbolIndex(symbolName);
+        Token storage token = tokens[idx];
+        return (token.highestBuyPrice, token.lowestBuyPrice, token.amountBuyPrice);
+    }
+
+    function getBuyOrderBookOffersStartAndEnd(string symbolName, uint priceInWei) public view returns (uint, uint) {
+        require(hasToken(symbolName), "token is not referenced in the exchange");
+
+        uint8 idx = getSymbolIndex(symbolName);
+        Token storage token = tokens[idx];
+        return (token.buyOrderBook[priceInWei].offers_start, token.buyOrderBook[priceInWei].offers_end);
+    }
+
+    function getBuyOrderBookOffersOrderTraderAndAmount(string symbolName, uint priceInWei, uint offerIndex) public view returns (address, uint) {
+        require(hasToken(symbolName), "token is not referenced in the exchange");
+
+        uint8 idx = getSymbolIndex(symbolName);
+        Token storage token = tokens[idx];
+        OrderBook storage orderBook = token.buyOrderBook[priceInWei];
+        Offer storage offer = orderBook.offers[offerIndex];
+        return (offer.trader, offer.amount);
+    }
+
+    function buyToken(string symbolName, uint amount, uint priceInWei) public returns (uint) {
+        require(hasToken(symbolName), "token is not referenced in the exchange");
+
+        require(etherBalanceForAddress[msg.sender] >= amount * priceInWei,
+            "ether balance for msg.sender is not enough to cover amount * priceInWei");
+        require(etherBalanceForAddress[msg.sender] - amount * priceInWei <= etherBalanceForAddress[msg.sender],
+            "amount * priceInWei underflows");
+
+        uint8 idx = getSymbolIndex(symbolName);
+        Token storage token = tokens[idx];
+        // 1. check that no matching sell orders. priceInWei <= priceInWei in sell orders (B 200 @ 100 wei <= S 100@90 && S 100@100)
+        //TODO: Complete the matching of the sell orders
+
+        // 2. place remaining unfulfilled order quantity at price in the buy order list. ordered by descending order
+        uint currentPrice = token.highestBuyPrice;
+        while (priceInWei < currentPrice && priceInWei >= token.lowestBuyPrice) {
+            currentPrice = token.buyOrderBook[currentPrice].lowerPrice;
+        }
+
+        //3. Found the index in the buyOrderBook. Now need to insert it.
+
+        //3.a case if priceInWei is the highest price (new head of the list)
+        if (priceInWei > token.highestBuyPrice) {
+            token.buyOrderBook[priceInWei].lowerPrice = token.highestBuyPrice;
+            token.buyOrderBook[token.highestBuyPrice].higherPrice = priceInWei;
+            token.highestBuyPrice = priceInWei;
+            token.buyOrderBook[priceInWei].offers_start = 1;
+        }
+        //3.b case if priceInWei is the lowest price (new tail of the list)
+        else if (priceInWei < token.lowestBuyPrice) {
+            token.buyOrderBook[priceInWei].higherPrice = token.lowestBuyPrice;
+            token.buyOrderBook[token.lowestBuyPrice].lowerPrice = priceInWei;
+            token.lowestBuyPrice = priceInWei;
+            token.buyOrderBook[priceInWei].offers_start = 1;
+        }
+        //3.c case if priceInWei does not exist in the list
+        else if (priceInWei != currentPrice) {
+            uint previousHigherPrice = token.buyOrderBook[currentPrice].higherPrice;
+            token.buyOrderBook[currentPrice].higherPrice = priceInWei;
+            token.buyOrderBook[priceInWei].lowerPrice = currentPrice;
+            token.buyOrderBook[previousHigherPrice].lowerPrice = priceInWei;
+            token.buyOrderBook[priceInWei].higherPrice = previousHigherPrice;
+            token.buyOrderBook[priceInWei].offers_start = 1;
+        }
+
+        // 4 push the offer in the offer queue
+        OrderBook storage orderBook = token.buyOrderBook[priceInWei];
+        orderBook.offers_end ++;
+        orderBook.offers[orderBook.offers_end] = Offer(msg.sender, amount);
+
+        token.amountBuyPrice += amount;
+
+        if (token.lowestBuyPrice == 0) {
+            token.lowestBuyPrice = token.highestBuyPrice;
+        }
+
+        emit BuyLimitOrderCreated(msg.sender, now, idx, symbolName,amount, priceInWei, 0x7f);
+
+        // 5. return orderId
+        return 0x7f;
+    }
+
+    ///////// SELL ORDER /////////
 
     //    function sellToken(string symbolName, uint amount, uint priceInWei) {
     //
     //    }
+
+    //////// CANCEL ORDER ////////
+
     //
     //    function cancelLimitOrder(string symbolName, bool isSellOrder, uint amount, uint priceInWei) {
     //
