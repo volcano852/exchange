@@ -1,8 +1,12 @@
 pragma solidity ^0.4.21;
 
 import './FixedSupplyToken.sol';
+import 'openzeppelin-solidity/contracts/ownership/Ownable.sol';
+import 'openzeppelin-solidity/contracts/math/SafeMath.sol';
 
-contract Exchange is Owned {
+contract Exchange is Ownable {
+
+    using SafeMath for uint256;
 
     struct Offer {
         address trader;
@@ -93,9 +97,7 @@ contract Exchange is Owned {
     ////////////////////////////////
 
     function depositEther() public payable {
-        require(etherBalanceForAddress[msg.sender] + msg.value >= etherBalanceForAddress[msg.sender]);
-        etherBalanceForAddress[msg.sender] += msg.value;
-
+        etherBalanceForAddress[msg.sender] = etherBalanceForAddress[msg.sender].add(msg.value);
         emit EtherDeposited(msg.sender, now, msg.value);
     }
 
@@ -104,11 +106,7 @@ contract Exchange is Owned {
             amountInWei <= etherBalanceForAddress[msg.sender],
             "amountInWei less than sender ether balance "
         );
-        require(
-            etherBalanceForAddress[msg.sender] - amountInWei <= etherBalanceForAddress[msg.sender],
-            "sender ether balance underflows"
-        );
-        etherBalanceForAddress[msg.sender] -= amountInWei;
+        etherBalanceForAddress[msg.sender] = etherBalanceForAddress[msg.sender].sub(amountInWei);
         msg.sender.transfer(amountInWei);
 
         emit EtherWithdrawn(msg.sender, now, amountInWei);
@@ -178,9 +176,7 @@ contract Exchange is Owned {
         ERC20Interface token = ERC20Interface(tokens[idx].tokenContract);
         require(token.transferFrom(msg.sender,address(this),amount));
 
-        uint tokenBalance = tokenBalancesForAddress[msg.sender][idx];
-        require(amount + tokenBalance >= tokenBalance, "sender token balance overflows");
-        tokenBalancesForAddress[msg.sender][idx] += amount;
+        tokenBalancesForAddress[msg.sender][idx] = tokenBalancesForAddress[msg.sender][idx].add(amount);
 
         emit TokenDeposited(msg.sender, now, idx, symbolName, amount);
     }
@@ -192,9 +188,8 @@ contract Exchange is Owned {
 
         uint tokenBalance = tokenBalancesForAddress[msg.sender][idx];
         require(tokenBalance >= amount,"token amount less than sender token balance");
-        require(tokenBalance - amount <= tokenBalance,"sender token balance underflows");
 
-        tokenBalancesForAddress[msg.sender][idx] -= amount;
+        tokenBalancesForAddress[msg.sender][idx] = tokenBalancesForAddress[msg.sender][idx].sub(amount);
 
         ERC20Interface token = ERC20Interface(tokens[idx].tokenContract);
         require(token.transfer(msg.sender,amount));
@@ -244,10 +239,8 @@ contract Exchange is Owned {
     function buyToken(string symbolName, uint amount, uint priceInWei) public returns (uint) {
         require(hasToken(symbolName), "token is not referenced in the exchange");
 
-        require(etherBalanceForAddress[msg.sender] >= amount * priceInWei,
+        require(etherBalanceForAddress[msg.sender] >= amount.mul(priceInWei),
             "ether balance for msg.sender is not enough to cover amount * priceInWei");
-        require(etherBalanceForAddress[msg.sender] - amount * priceInWei <= etherBalanceForAddress[msg.sender],
-            "amount * priceInWei underflows");
 
         uint8 idx = getSymbolIndex(symbolName);
         Token storage token = tokens[idx];
@@ -291,7 +284,7 @@ contract Exchange is Owned {
         orderBook.offers_end ++;
         orderBook.offers[orderBook.offers_end] = Offer(msg.sender, amount);
 
-        token.amountBuyPrice += amount;
+        token.amountBuyPrice = token.amountBuyPrice.add(amount);
 
         if (token.lowestBuyPrice == 0) {
             token.lowestBuyPrice = token.highestBuyPrice;
