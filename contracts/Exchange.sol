@@ -336,6 +336,34 @@ contract Exchange is Ownable {
         return (offer.trader, offer.amount);
     }
 
+    function matchBuyOrder(Token storage token,string symbolName, uint8 idx, uint amount, uint priceInWei) internal returns(uint) {
+        uint currentBuyPrice = token.highestBuyPrice;
+        uint remainingAmount = amount;
+
+        while (currentBuyPrice > 0 && currentBuyPrice >= priceInWei && remainingAmount > 0) {
+            OrderBook storage buyOrderBook = token.buyOrderBook[currentBuyPrice];
+            uint offer_idx = buyOrderBook.offers_start;
+            while (offer_idx <= buyOrderBook.offers_end && remainingAmount > 0) {
+                Offer storage offer = buyOrderBook.offers[offer_idx];
+                if (remainingAmount >= offer.amount) {
+                    remainingAmount -= offer.amount;
+                    token.amountBuy -= offer.amount;
+                    emit BuyLimitOrderFulfilled(offer.trader,now,idx,symbolName,offer.amount,currentBuyPrice,0x7f);
+                    currentBuyPrice = buyOrderBook.lowerPrice;
+                    token.highestBuyPrice = currentBuyPrice;
+                    buyOrderBook.offers_start ++;
+                }
+                else {
+                    token.amountBuy -= remainingAmount;
+                    offer.amount -= remainingAmount;
+                    remainingAmount = 0;
+                }
+                offer_idx ++;
+            }
+        }
+        return remainingAmount;
+    }
+
     function sellToken(string symbolName, uint amount, uint priceInWei) public returns (uint) {
         require(hasToken(symbolName), "token is not referenced in the exchange");
 
@@ -343,8 +371,14 @@ contract Exchange is Ownable {
         require(amount <= tokenBalance,'token balance for msg.sender is not enough to cover the sell order');
         uint8 idx = getSymbolIndex(symbolName);
         Token storage token = tokens[idx];
+
         // 1. check that no matching buy orders. priceInWei >= priceInWei in buy orders
-        //TODO: Complete the matching of the buy orders
+        uint remainingAmount = matchBuyOrder(token,symbolName,idx,amount,priceInWei);
+
+        if (remainingAmount == 0) {
+            emit SellLimitOrderFulfilled(msg.sender,now,idx,symbolName,amount,priceInWei,0x7f);
+            return 0x7f;
+        }
 
         // 2. place remaining unfulfilled order quantity in the sell order book sorted by ascending order
         uint currentPrice = token.lowestSellPrice;
@@ -386,14 +420,14 @@ contract Exchange is Ownable {
         // 4 push the offer in the offer queue
         OrderBook storage orderBook = token.sellOrderBook[priceInWei];
         orderBook.offers_end ++;
-        orderBook.offers[orderBook.offers_end] = Offer(msg.sender, amount);
+        orderBook.offers[orderBook.offers_end] = Offer(msg.sender, remainingAmount);
 
         //5. add to the sell order book total quantity
-        token.amountSell = token.amountSell.add(amount);
+        token.amountSell = token.amountSell.add(remainingAmount);
 
-        emit SellLimitOrderCreated(msg.sender, now, idx, symbolName,amount, priceInWei, 0x7f);
+        emit SellLimitOrderCreated(msg.sender, now, idx, symbolName,remainingAmount, priceInWei, 0x7f);
 
-        // 5. return orderId
+        // 6. return orderId
         return 0x7f;
     }
 
