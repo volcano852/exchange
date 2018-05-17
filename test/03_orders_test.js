@@ -239,4 +239,51 @@ contract('Exchange Order', function (accounts) {
         assert.equal(offerTraderAndAmount_1[0],accounts[1]);
         assert.equal(offerTraderAndAmount_1[1],60);
     });
+
+    it('adding first sell orders and then adding buy orders will trigger orders matching when buying' , async function () {
+        await exchange.depositEther({from:accounts[0],value:20000});
+        await exchange.depositEther({from:accounts[1],value:20000});
+        await exchange.depositEther({from:accounts[2],value:20000});
+
+        await token.transfer(accounts[1],2000,{from:accounts[0]});
+        await token.transfer(accounts[2],2000,{from:accounts[0]});
+
+        await token.approve(exchange.address,2000,{from:accounts[0]});
+        await token.approve(exchange.address,2000,{from:accounts[1]});
+        await token.approve(exchange.address,2000,{from:accounts[2]});
+
+        await exchange.depositToken('FAB',2000,{from:accounts[0]});
+        await exchange.depositToken('FAB',2000,{from:accounts[1]});
+        await exchange.depositToken('FAB',2000,{from:accounts[2]});
+
+        await exchange.sellToken('FAB',70,110,{from:accounts[0]});
+        await exchange.sellToken('FAB',90,100,{from:accounts[1]});
+        await exchange.sellToken('FAB',50,100,{from:accounts[0]});
+
+        await exchange.buyToken('FAB',150,105,{from:accounts[2]});
+
+        // 50@100 sell order fulfilled
+        // 90@100 sell order fulfilled
+        // 70@110 sell order added
+        //
+        // 10@105 buy order added. left 10@105
+
+        let sellOrderBookPricesAndAmount = await exchange.getSellOrderBookPricesAndAmount('FAB');
+        assert.equal(sellOrderBookPricesAndAmount[0].toNumber(),110);
+        assert.equal(sellOrderBookPricesAndAmount[1].toNumber(),110);
+        assert.equal(sellOrderBookPricesAndAmount[2].toNumber(),70);
+
+        let buyOrderBookPricesAndAmount = await exchange.getBuyOrderBookPricesAndAmount('FAB');
+        assert.equal(buyOrderBookPricesAndAmount[0].toNumber(),105);
+        assert.equal(buyOrderBookPricesAndAmount[1].toNumber(),105);
+        assert.equal(buyOrderBookPricesAndAmount[2].toNumber(),10);
+
+        let offersStartAndEnd_105 = await exchange.getBuyOrderBookOffersStartAndEnd('FAB',105);
+        assert.equal(offersStartAndEnd_105[0],1);
+        assert.equal(offersStartAndEnd_105[1],1);
+
+        let offerTraderAndAmount_1 = await exchange.getBuyOrderBookOffersOrderTraderAndAmount('FAB',105,1);
+        assert.equal(offerTraderAndAmount_1[0],accounts[2]);
+        assert.equal(offerTraderAndAmount_1[1],10);
+    });
 });
