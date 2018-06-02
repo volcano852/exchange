@@ -26,6 +26,9 @@ contract('Exchange Order', function (accounts) {
 
         await exchange.buyToken('FAB',20,100,{from:accounts[0]});
 
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),10000 - 20 * 100);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[0]})),0);
+
         let orderBookPricesAndAmount = await exchange.getBuyOrderBookPricesAndAmount('FAB');
         assert.equal(orderBookPricesAndAmount[0].toNumber(),100);
         assert.equal(orderBookPricesAndAmount[1].toNumber(),100);
@@ -46,6 +49,11 @@ contract('Exchange Order', function (accounts) {
 
         await exchange.buyToken('FAB',20,100,{from:accounts[0]});
         await exchange.buyToken('FAB',40,100,{from:accounts[1]});
+
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),10000 - 20 * 100);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),10000 - 40 * 100);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[0]})),0);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[1]})),0);
 
         let orderBookPricesAndAmount = await exchange.getBuyOrderBookPricesAndAmount('FAB');
         assert.equal(orderBookPricesAndAmount[0].toNumber(),100);
@@ -72,6 +80,11 @@ contract('Exchange Order', function (accounts) {
         await exchange.buyToken('FAB',20,100,{from:accounts[0]});
         await exchange.buyToken('FAB',40,100,{from:accounts[1]});
         await exchange.buyToken('FAB',30,90,{from:accounts[1]});
+
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),10000 - 20 * 100);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),10000 - 40 * 100 - 30 * 90);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[0]})),0);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[0]})),0);
 
         let orderBookPricesAndAmount = await exchange.getBuyOrderBookPricesAndAmount('FAB');
         assert.equal(orderBookPricesAndAmount[0].toNumber(),100);
@@ -113,7 +126,11 @@ contract('Exchange Order', function (accounts) {
     it('sellToken in an empty order book will add one sell limit order' , async function () {
         await token.approve(exchange.address,2000,{from:accounts[0]});
         await exchange.depositToken('FAB',2000,{from:accounts[0]});
+
         await exchange.sellToken('FAB',40,110,{from:accounts[0]});
+
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[0]})),2000 - 40);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),0);
 
         let orderBookPricesAndAmount = await exchange.getSellOrderBookPricesAndAmount('FAB');
         assert.equal(orderBookPricesAndAmount[0].toNumber(),110);
@@ -140,6 +157,11 @@ contract('Exchange Order', function (accounts) {
 
         await exchange.sellToken('FAB',40,110,{from:accounts[0]});
         await exchange.sellToken('FAB',80,110,{from:accounts[1]});
+
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[0]})),2000 - 40);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[1]})),2000 - 80);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),0);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),0);
 
         let orderBookPricesAndAmount = await exchange.getSellOrderBookPricesAndAmount('FAB');
         assert.equal(orderBookPricesAndAmount[0].toNumber(),110);
@@ -171,6 +193,11 @@ contract('Exchange Order', function (accounts) {
         await exchange.sellToken('FAB',40,110,{from:accounts[0]});
         await exchange.sellToken('FAB',80,110,{from:accounts[1]});
         await exchange.sellToken('FAB',60,120,{from:accounts[1]});
+
+        assert.equal((await exchange.getBalanceToken("FAB",{from:accounts[0]})),2000 - 40);
+        assert.equal((await exchange.getBalanceToken("FAB",{from:accounts[1]})),2000 - 80 - 60);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),0);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),0);
 
         let orderBookPricesAndAmount = await exchange.getSellOrderBookPricesAndAmount('FAB');
         assert.equal(orderBookPricesAndAmount[0].toNumber(),110);
@@ -221,6 +248,15 @@ contract('Exchange Order', function (accounts) {
         // 20@100 buy order fulfilled
         // 10@100 partial executed. left 60@100
 
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[0]})),2000 + 70);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[1]})),2000 + 20 + 10);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[2]})),2000 - 100);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),20000 - 70 * 110);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),20000 - 20 * 110 - 70 * 100);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[2]}),70 * 110 + 20 * 110 + 10 * 100);
+        // the 60 * 100 remaining wei are not stored anywhere in the exchange
+        // as they are paid upfront when buying tokens and not increased in some escrow account for example
+
         let buyOrderBookPricesAndAmount = await exchange.getBuyOrderBookPricesAndAmount('FAB');
         assert.equal(buyOrderBookPricesAndAmount[0].toNumber(),100);
         assert.equal(buyOrderBookPricesAndAmount[1].toNumber(),100);
@@ -267,6 +303,14 @@ contract('Exchange Order', function (accounts) {
         // 70@110 sell order added
         //
         // 10@105 buy order added. left 10@105
+
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[0]})),2000 - 50 - 70);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[1]})),2000 - 90);
+        assert.equal((await exchange.getBalanceToken('FAB',{from:accounts[2]})),2000 + 140);
+
+        assert.equal(await exchange.getBalanceInWei({from:accounts[0]}),20000 + 50 * 100);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[1]}),20000 + 90 * 100);
+        assert.equal(await exchange.getBalanceInWei({from:accounts[2]}),20000 - 140 * 100 - 10 * 105);
 
         let sellOrderBookPricesAndAmount = await exchange.getSellOrderBookPricesAndAmount('FAB');
         assert.equal(sellOrderBookPricesAndAmount[0].toNumber(),110);

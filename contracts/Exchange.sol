@@ -77,22 +77,22 @@ contract Exchange is Ownable {
     ////////////////////
 
     event BuyLimitOrderCreated(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei,uint _orderId);
+        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
 
     event SellLimitOrderCreated(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
+        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
 
     event BuyLimitOrderCanceled(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
+        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
 
     event SellLimitOrderCanceled(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
+        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
 
     event BuyLimitOrderFulfilled(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
+        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
 
     event SellLimitOrderFulfilled(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName,uint _amount,uint _priceInWei, uint _orderId);
+        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
 
     ////////////////////////////////
     /// ETHER DEPOSIT & WITHDRAW ///
@@ -108,13 +108,9 @@ contract Exchange is Ownable {
             amountInWei <= etherBalanceForAddress[msg.sender],
             "amountInWei less than sender ether balance "
         );
-        //TODO: Should not allow to withdraw if active order.
-        //TODO: Need either to cancel first or withdrawEther should call cancelAllOrder
-        //Is there an easy way to know the orders for a user ? Rename the method also if we do that
         etherBalanceForAddress[msg.sender] = etherBalanceForAddress[msg.sender].sub(amountInWei);
         msg.sender.transfer(amountInWei);
 
-        //TODO: move the event because of re entrancy of transfer ?
         emit EtherWithdrawn(msg.sender, now, amountInWei);
     }
 
@@ -175,12 +171,12 @@ contract Exchange is Ownable {
     ////////////////////////////////
 
 
-    function depositToken(string symbolName,uint amount) public {
+    function depositToken(string symbolName, uint amount) public {
         require(hasToken(symbolName), "token is not referenced in the exchange");
 
         uint8 idx = getSymbolIndex(symbolName);
         ERC20Interface token = ERC20Interface(tokens[idx].tokenContract);
-        require(token.transferFrom(msg.sender,address(this),amount));
+        require(token.transferFrom(msg.sender, address(this), amount));
 
         tokenBalancesForAddress[msg.sender][idx] = tokenBalancesForAddress[msg.sender][idx].add(amount);
 
@@ -190,21 +186,17 @@ contract Exchange is Ownable {
     function withdrawToken(string symbolName, uint amount) public {
         require(hasToken(symbolName), "token is not referenced in the exchange");
 
-        //TODO: Should not allow to withdraw the tokens if any active orders
-        //TODO: Need either to cancel first or withdrawToken should call cancelAllOrder on sell
-
         uint8 idx = getSymbolIndex(symbolName);
 
         uint tokenBalance = tokenBalancesForAddress[msg.sender][idx];
-        require(tokenBalance >= amount,"token amount less than sender token balance");
+        require(tokenBalance >= amount, "token amount less than sender token balance");
 
         tokenBalancesForAddress[msg.sender][idx] = tokenBalancesForAddress[msg.sender][idx].sub(amount);
 
-        ERC20Interface token = ERC20Interface(tokens[idx].tokenContract);
-        require(token.transfer(msg.sender,amount));
-
-        //TODO: move the event because of the re-entrancy issue (token.transfer) ?
         emit TokenWithdrawn(msg.sender, now, idx, symbolName, amount);
+
+        ERC20Interface token = ERC20Interface(tokens[idx].tokenContract);
+        require(token.transfer(msg.sender, amount));
     }
 
     function getBalanceToken(string symbolName) public view returns (uint) {
@@ -245,7 +237,7 @@ contract Exchange is Ownable {
         Offer storage offer = orderBook.offers[offerIndex];
         return (offer.trader, offer.amount);
     }
-    
+
     function matchSellOrder(Token storage token,string symbolName, uint8 idx, uint amount, uint priceInWei) internal returns(uint) {
         uint currentSellPrice = token.lowestSellPrice;
         uint remainingAmount = amount;
@@ -255,21 +247,30 @@ contract Exchange is Ownable {
             uint offer_idx = sellOrderBook.offers_start;
             while (offer_idx <= sellOrderBook.offers_end && remainingAmount > 0) {
                 Offer storage offer = sellOrderBook.offers[offer_idx];
-                if (remainingAmount >= offer.amount) {
-                    remainingAmount -= offer.amount;
-                    token.amountSell -= offer.amount;
-                    emit SellLimitOrderFulfilled(offer.trader,now,idx,symbolName,offer.amount,currentSellPrice,0x7f);
-                    currentSellPrice = sellOrderBook.higherPrice;
-                    token.lowestSellPrice = currentSellPrice;
+
+                // 1. take no more than remainingAmount
+                uint minAmount = offer.amount;
+                if (offer.amount > remainingAmount) {
+                    minAmount = remainingAmount;
+                }
+                remainingAmount -= minAmount;
+                token.amountSell -= minAmount;
+                // tokens increases for the buyer
+                tokenBalancesForAddress[msg.sender][idx] += minAmount;
+                // ether changes hands
+                etherBalanceForAddress[msg.sender] -= minAmount.mul(currentSellPrice);
+                etherBalanceForAddress[offer.trader] += minAmount.mul(currentSellPrice);
+                // 2. partial or complete order fulfilled ?
+                if (minAmount == offer.amount) {
                     sellOrderBook.offers_start ++;
+                    emit SellLimitOrderFulfilled(offer.trader, now, idx, symbolName, offer.amount, currentSellPrice, 0x7f);
                 }
-                else {
-                    token.amountSell -= remainingAmount;
-                    offer.amount -= remainingAmount;
-                    remainingAmount = 0;
-                }
+                offer.amount -= minAmount;
+                // 3. move to the next offer
                 offer_idx ++;
             }
+            currentSellPrice = sellOrderBook.higherPrice;
+            token.lowestSellPrice = currentSellPrice;
         }
         return remainingAmount;
     }
@@ -284,7 +285,7 @@ contract Exchange is Ownable {
         Token storage token = tokens[idx];
 
         // 1. check that no matching sell orders. priceInWei <= priceInWei in sell orders
-        uint remainingAmount = matchSellOrder(token,symbolName,idx,amount,priceInWei);
+        uint remainingAmount = matchSellOrder(token, symbolName, idx, amount, priceInWei);
 
         // 2. place remaining unfulfilled order quantity at price in the buy order list. ordered by descending order
         uint currentPrice = token.highestBuyPrice;
@@ -297,14 +298,16 @@ contract Exchange is Ownable {
         if (token.amountBuy == 0) {
             token.lowestBuyPrice = priceInWei;
             token.highestBuyPrice = priceInWei;
-            token.buyOrderBook[priceInWei].offers_start = 1; // to mention a new offer at this price
+            token.buyOrderBook[priceInWei].offers_start = 1;
+            // to mention a new offer at this price
         }
         //3.b case if priceInWei is the highest price (new head of the list) or first order
         else if (priceInWei > token.highestBuyPrice) {
             token.buyOrderBook[priceInWei].lowerPrice = token.highestBuyPrice;
             token.buyOrderBook[token.highestBuyPrice].higherPrice = priceInWei;
             token.highestBuyPrice = priceInWei;
-            token.buyOrderBook[priceInWei].offers_start = 1; // to mention a new offer at this price
+            token.buyOrderBook[priceInWei].offers_start = 1;
+            // to mention a new offer at this price
         }
         //3.c case if priceInWei is the lowest price (new tail of the list)
         else if (priceInWei < token.lowestBuyPrice) {
@@ -331,7 +334,9 @@ contract Exchange is Ownable {
         //5. add to the buy order book total quantity
         token.amountBuy = token.amountBuy.add(remainingAmount);
 
-        emit BuyLimitOrderCreated(msg.sender, now, idx, symbolName,remainingAmount, priceInWei, 0x7f);
+        etherBalanceForAddress[msg.sender] = etherBalanceForAddress[msg.sender].sub(remainingAmount.mul(priceInWei));
+
+        emit BuyLimitOrderCreated(msg.sender, now, idx, symbolName, remainingAmount, priceInWei, 0x7f);
 
         // 6. return orderId
         return 0x7f;
@@ -365,7 +370,7 @@ contract Exchange is Ownable {
         return (offer.trader, offer.amount);
     }
 
-    function matchBuyOrder(Token storage token,string symbolName, uint8 idx, uint amount, uint priceInWei) internal returns(uint) {
+    function matchBuyOrder(Token storage token, string symbolName, uint8 idx, uint amount, uint priceInWei) internal returns (uint) {
         uint currentBuyPrice = token.highestBuyPrice;
         uint remainingAmount = amount;
 
@@ -374,20 +379,32 @@ contract Exchange is Ownable {
             uint offer_idx = buyOrderBook.offers_start;
             while (offer_idx <= buyOrderBook.offers_end && remainingAmount > 0) {
                 Offer storage offer = buyOrderBook.offers[offer_idx];
-                if (remainingAmount >= offer.amount) {
-                    remainingAmount -= offer.amount;
-                    token.amountBuy -= offer.amount;
-                    emit BuyLimitOrderFulfilled(offer.trader,now,idx,symbolName,offer.amount,currentBuyPrice,0x7f);
-                    currentBuyPrice = buyOrderBook.lowerPrice;
-                    token.highestBuyPrice = currentBuyPrice;
+
+                // 1. take no more than remainingAmount
+                uint minAmount = offer.amount;
+                if (offer.amount > remainingAmount) {
+                    minAmount = remainingAmount;
+                }
+                remainingAmount -= minAmount;
+                token.amountBuy -= minAmount;
+                // tokens change hands
+                tokenBalancesForAddress[msg.sender][idx] -= minAmount;
+                tokenBalancesForAddress[offer.trader][idx] += minAmount;
+                // ether increase for the seller
+                etherBalanceForAddress[msg.sender] += minAmount.mul(currentBuyPrice);
+
+                // 2. partial or complete order fulfilled ?
+                if (minAmount == offer.amount) {
                     buyOrderBook.offers_start ++;
+                    emit BuyLimitOrderFulfilled(offer.trader, now, idx, symbolName, offer.amount, currentBuyPrice, 0x7f);
                 }
-                else {
-                    token.amountBuy -= remainingAmount;
-                    offer.amount -= remainingAmount;
-                    remainingAmount = 0;
-                }
+                offer.amount -= minAmount;
+                // 3. move to the next offer
                 offer_idx ++;
+            }
+            currentBuyPrice = buyOrderBook.lowerPrice;
+            if (buyOrderBook.lowerPrice != 0) {
+                token.highestBuyPrice = buyOrderBook.lowerPrice;
             }
         }
         return remainingAmount;
@@ -397,15 +414,15 @@ contract Exchange is Ownable {
         require(hasToken(symbolName), "token is not referenced in the exchange");
 
         uint256 tokenBalance = getBalanceToken(symbolName);
-        require(amount <= tokenBalance,'token balance for msg.sender is not enough to cover the sell order');
+        require(amount <= tokenBalance, 'token balance for msg.sender is not enough to cover the sell order');
         uint8 idx = getSymbolIndex(symbolName);
         Token storage token = tokens[idx];
 
         // 1. check that no matching buy orders. priceInWei >= priceInWei in buy orders
-        uint remainingAmount = matchBuyOrder(token,symbolName,idx,amount,priceInWei);
+        uint remainingAmount = matchBuyOrder(token, symbolName, idx, amount, priceInWei);
 
         if (remainingAmount == 0) {
-            emit SellLimitOrderFulfilled(msg.sender,now,idx,symbolName,amount,priceInWei,0x7f);
+            emit SellLimitOrderFulfilled(msg.sender, now, idx, symbolName, amount, priceInWei, 0x7f);
             return 0x7f;
         }
 
@@ -420,21 +437,24 @@ contract Exchange is Ownable {
         if (token.amountSell == 0) {
             token.lowestSellPrice = priceInWei;
             token.highestSellPrice = priceInWei;
-            token.sellOrderBook[priceInWei].offers_start = 1; // to mention a new offer at this price
+            token.sellOrderBook[priceInWei].offers_start = 1;
+            // to mention a new offer at this price
         }
         //3.b case if priceInWei is the lowest price (new head of the list)
         else if (priceInWei < token.lowestSellPrice) {
             token.sellOrderBook[priceInWei].higherPrice = token.lowestSellPrice;
             token.sellOrderBook[token.lowestSellPrice].lowerPrice = priceInWei;
             token.lowestSellPrice = priceInWei;
-            token.sellOrderBook[priceInWei].offers_start = 1; // to mention a new offer at this price
+            token.sellOrderBook[priceInWei].offers_start = 1;
+            // to mention a new offer at this price
         }
         //3.c case if priceInWei is the highest price (new tail of the list)
         else if (priceInWei > token.highestSellPrice) {
             token.sellOrderBook[priceInWei].lowerPrice = token.highestSellPrice;
             token.sellOrderBook[token.highestSellPrice].higherPrice = priceInWei;
             token.highestSellPrice = priceInWei;
-            token.sellOrderBook[priceInWei].offers_start = 1; // to mention a new offer at this price
+            token.sellOrderBook[priceInWei].offers_start = 1;
+            // to mention a new offer at this price
         }
         //3.d case if priceInWei does not exist in the list
         else if (priceInWei != currentPrice) {
@@ -443,7 +463,8 @@ contract Exchange is Ownable {
             token.sellOrderBook[priceInWei].higherPrice = currentPrice;
             token.sellOrderBook[previousLowerPrice].higherPrice = priceInWei;
             token.sellOrderBook[priceInWei].lowerPrice = previousLowerPrice;
-            token.sellOrderBook[priceInWei].offers_start = 1; // to mention a new offer at this price
+            token.sellOrderBook[priceInWei].offers_start = 1;
+            // to mention a new offer at this price
         }
 
         // 4 push the offer in the offer queue
@@ -454,7 +475,8 @@ contract Exchange is Ownable {
         //5. add to the sell order book total quantity
         token.amountSell = token.amountSell.add(remainingAmount);
 
-        emit SellLimitOrderCreated(msg.sender, now, idx, symbolName,remainingAmount, priceInWei, 0x7f);
+        tokenBalancesForAddress[msg.sender][idx] = tokenBalancesForAddress[msg.sender][idx].sub(remainingAmount);
+        emit SellLimitOrderCreated(msg.sender, now, idx, symbolName, remainingAmount, priceInWei, 0x7f);
 
         // 6. return orderId
         return 0x7f;
