@@ -76,23 +76,17 @@ contract Exchange is Ownable {
     /// ORDER EVENTS ///
     ////////////////////
 
-    event BuyLimitOrderCreated(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
+    event BuyLimitOrderCreated(address indexed _initiator, uint _timestamp, string _symbolName, uint _amount, uint _priceInWei, uint _orderIdx);
 
-    event SellLimitOrderCreated(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
+    event SellLimitOrderCreated(address indexed _initiator, uint _timestamp, string _symbolName, uint _amount, uint _priceInWei, uint _orderIdx);
 
-    event BuyLimitOrderCanceled(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
+    event BuyLimitOrderCanceled(address indexed _initiator, uint _timestamp, string _symbolName, uint _amount, uint _priceInWei, uint _orderIdx);
 
-    event SellLimitOrderCanceled(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
+    event SellLimitOrderCanceled(address indexed _initiator, uint _timestamp, string _symbolName, uint _amount, uint _priceInWei, uint _orderIdx);
 
-    event BuyLimitOrderFulfilled(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
+    event BuyLimitOrderFulfilled(address indexed _initiator, uint _timestamp, string _symbolName, uint _amount, uint _priceInWei, uint _orderIdx);
 
-    event SellLimitOrderFulfilled(address indexed _initiator, uint _timestamp,
-        uint8 indexed _tokenIndex, string _symbolName, uint _amount, uint _priceInWei, uint _orderId);
+    event SellLimitOrderFulfilled(address indexed _initiator, uint _timestamp, string _symbolName, uint _amount, uint _priceInWei, uint _orderIdx);
 
     ////////////////////////////////
     /// ETHER DEPOSIT & WITHDRAW ///
@@ -238,7 +232,7 @@ contract Exchange is Ownable {
         return (offer.trader, offer.amount);
     }
 
-    function matchSellOrder(Token storage token,string symbolName, uint8 idx, uint amount, uint priceInWei) internal returns(uint) {
+    function matchSellOrder(Token storage token, string symbolName, uint8 idx, uint amount, uint priceInWei) internal returns (uint) {
         uint currentSellPrice = token.lowestSellPrice;
         uint remainingAmount = amount;
 
@@ -248,6 +242,12 @@ contract Exchange is Ownable {
             while (offer_idx <= sellOrderBook.offers_end && remainingAmount > 0) {
                 Offer storage offer = sellOrderBook.offers[offer_idx];
 
+                // skip the canceled order
+                if (offer.amount == 0) {
+                    sellOrderBook.offers_start ++;
+                    offer_idx ++;
+                    continue;
+                }
                 // 1. take no more than remainingAmount
                 uint minAmount = offer.amount;
                 if (offer.amount > remainingAmount) {
@@ -263,7 +263,7 @@ contract Exchange is Ownable {
                 // 2. partial or complete order fulfilled ?
                 if (minAmount == offer.amount) {
                     sellOrderBook.offers_start ++;
-                    emit SellLimitOrderFulfilled(offer.trader, now, idx, symbolName, offer.amount, currentSellPrice, 0x7f);
+                    emit SellLimitOrderFulfilled(offer.trader, now, symbolName, offer.amount, currentSellPrice, offer_idx);
                 }
                 offer.amount -= minAmount;
                 // 3. move to the next offer
@@ -286,6 +286,11 @@ contract Exchange is Ownable {
 
         // 1. check that no matching sell orders. priceInWei <= priceInWei in sell orders
         uint remainingAmount = matchSellOrder(token, symbolName, idx, amount, priceInWei);
+
+        if (remainingAmount == 0) {
+            emit BuyLimitOrderFulfilled(msg.sender, now, symbolName, amount, priceInWei, 0);
+            return 0;
+        }
 
         // 2. place remaining unfulfilled order quantity at price in the buy order list. ordered by descending order
         uint currentPrice = token.highestBuyPrice;
@@ -336,10 +341,10 @@ contract Exchange is Ownable {
 
         etherBalanceForAddress[msg.sender] = etherBalanceForAddress[msg.sender].sub(remainingAmount.mul(priceInWei));
 
-        emit BuyLimitOrderCreated(msg.sender, now, idx, symbolName, remainingAmount, priceInWei, 0x7f);
+        emit BuyLimitOrderCreated(msg.sender, now, symbolName, remainingAmount, priceInWei, orderBook.offers_end);
 
-        // 6. return orderId
-        return 0x7f;
+        // 6. return order position
+        return orderBook.offers_end;
     }
 
     ///////// SELL ORDER /////////
@@ -380,6 +385,12 @@ contract Exchange is Ownable {
             while (offer_idx <= buyOrderBook.offers_end && remainingAmount > 0) {
                 Offer storage offer = buyOrderBook.offers[offer_idx];
 
+                // skip the canceled order
+                if (offer.amount == 0) {
+                    buyOrderBook.offers_start ++;
+                    offer_idx ++;
+                    continue;
+                }
                 // 1. take no more than remainingAmount
                 uint minAmount = offer.amount;
                 if (offer.amount > remainingAmount) {
@@ -396,7 +407,7 @@ contract Exchange is Ownable {
                 // 2. partial or complete order fulfilled ?
                 if (minAmount == offer.amount) {
                     buyOrderBook.offers_start ++;
-                    emit BuyLimitOrderFulfilled(offer.trader, now, idx, symbolName, offer.amount, currentBuyPrice, 0x7f);
+                    emit BuyLimitOrderFulfilled(offer.trader, now, symbolName, offer.amount, currentBuyPrice, offer_idx);
                 }
                 offer.amount -= minAmount;
                 // 3. move to the next offer
@@ -422,8 +433,8 @@ contract Exchange is Ownable {
         uint remainingAmount = matchBuyOrder(token, symbolName, idx, amount, priceInWei);
 
         if (remainingAmount == 0) {
-            emit SellLimitOrderFulfilled(msg.sender, now, idx, symbolName, amount, priceInWei, 0x7f);
-            return 0x7f;
+            emit SellLimitOrderFulfilled(msg.sender, now, symbolName, amount, priceInWei, 0);
+            return 0;
         }
 
         // 2. place remaining unfulfilled order quantity in the sell order book sorted by ascending order
@@ -476,18 +487,45 @@ contract Exchange is Ownable {
         token.amountSell = token.amountSell.add(remainingAmount);
 
         tokenBalancesForAddress[msg.sender][idx] = tokenBalancesForAddress[msg.sender][idx].sub(remainingAmount);
-        emit SellLimitOrderCreated(msg.sender, now, idx, symbolName, remainingAmount, priceInWei, 0x7f);
+        emit SellLimitOrderCreated(msg.sender, now, symbolName, remainingAmount, priceInWei, orderBook.offers_end);
 
-        // 6. return orderId
-        return 0x7f;
+        // 6. return order position
+        return orderBook.offers_end;
     }
 
 
     //////// CANCEL ORDER ////////
 
-    //
-    //    function cancelLimitOrder(string symbolName, bool isSellOrder, uint amount, uint priceInWei) {
-    //
-    //    }
+    // can a cancel be run at the same time than an execution because many transactions can happen in the same block ?
+    // can a cancel front run an execution and put the exchange into an inconsistent state ?
+    function cancelBuyLimitOrder(string symbolName, uint priceInWei, uint orderPosition) {
+        require(hasToken(symbolName), "token is not referenced in the exchange");
+        uint256 tokenBalance = getBalanceToken(symbolName);
+        uint8 idx = getSymbolIndex(symbolName);
+        Token storage token = tokens[idx];
+        Offer storage offer = token.buyOrderBook[priceInWei].offers[orderPosition];
+        require(offer.trader == msg.sender, "the offer trader is not the sender");
+        require(offer.amount != 0, "the order has already been canceled");
+        etherBalanceForAddress[msg.sender] = etherBalanceForAddress[msg.sender].add(offer.amount.sub(priceInWei));
+        token.amountBuy = token.amountBuy.sub(offer.amount);
+        emit BuyLimitOrderCanceled(msg.sender, now, symbolName, offer.amount, priceInWei, orderPosition);
+        offer.amount = 0;
+    }
+
+    // can a cancel be run at the same time than an execution because many transactions can happen in the same block ?
+    // can a cancel front run an execution and put the exchange into an inconsistent state ?
+    function cancelSellLimitOrder(string symbolName, uint priceInWei, uint orderPosition) {
+        require(hasToken(symbolName), "token is not referenced in the exchange");
+        uint256 tokenBalance = getBalanceToken(symbolName);
+        uint8 idx = getSymbolIndex(symbolName);
+        Token storage token = tokens[idx];
+        Offer storage offer = token.sellOrderBook[priceInWei].offers[orderPosition];
+        require(offer.trader == msg.sender, "the offer trader is not the sender");
+        require(offer.amount != 0, "the order has already been canceled");
+        tokenBalancesForAddress[msg.sender][idx] = tokenBalancesForAddress[msg.sender][idx].sub(offer.amount);
+        token.amountSell = token.amountSell.sub(offer.amount);
+        emit BuyLimitOrderCanceled(msg.sender, now, symbolName, offer.amount, priceInWei, orderPosition);
+        offer.amount = 0;
+    }
 }
 
